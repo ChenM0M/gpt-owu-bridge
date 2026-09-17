@@ -109,7 +109,7 @@ func runSync(args, environ []string, stdout io.Writer) error {
 		for _, message := range snapshot.Messages {
 			roles[message.Role]++
 		}
-		return writeSyncOutput(stdout, map[string]any{"evidence_scope": syncEvidenceScope, "plan": plan, "source": sourceSummary{Title: snapshot.Title, IdentityEvidence: snapshot.Identity.Evidence, MessageCount: len(snapshot.Messages), Roles: roles, CoverageStatus: snapshot.Coverage.Status, Unsupported: snapshot.Coverage.Unsupported, BusinessHash: snapshot.BusinessHash}})
+		return writeSyncOutput(stdout, map[string]any{"evidence_scope": syncEvidenceScope, "plan": plan, "source": sourceSummary{Title: snapshot.Title, IdentityEvidence: snapshot.Identity.Evidence, MessageCount: len(snapshot.Messages), Roles: roles, CoverageStatus: snapshot.Coverage.Status, Unsupported: snapshot.Coverage.Unsupported, Diagnostics: snapshot.Coverage.Diagnostics, BusinessHash: snapshot.BusinessHash}})
 	case "apply", "status", "recover":
 		var operation domain.Operation
 		switch flags.action {

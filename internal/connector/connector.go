@@ -30,9 +30,10 @@ type statusInput struct {
 	OperationID string `json:"operation_id"`
 }
 type previewOutput struct {
-	Plan         domain.SyncPlan `json:"plan"`
-	Title        string          `json:"title"`
-	MessageCount int             `json:"message_count"`
+	Plan         domain.SyncPlan            `json:"plan"`
+	Title        string                     `json:"title"`
+	MessageCount int                        `json:"message_count"`
+	Diagnostics  []domain.ContentDiagnostic `json:"diagnostics,omitempty"`
 }
 type operationOutput struct {
 	Operation domain.Operation `json:"operation"`
@@ -89,7 +90,7 @@ func New(ctx context.Context, cfg config.Config) (http.Handler, func() error, er
 		if e != nil {
 			return nil, previewOutput{}, errors.New("preview could not be completed")
 		}
-		return nil, previewOutput{plan, snapshot.Title, len(snapshot.Messages)}, nil
+		return nil, previewOutput{Plan: plan, Title: snapshot.Title, MessageCount: len(snapshot.Messages), Diagnostics: snapshot.Coverage.Diagnostics}, nil
 	})
 	mcp.AddTool(srv, &mcp.Tool{Name: "apply_sync", Description: "Apply a specific preview plan only after explicit user approval. Creates or updates only bridge-managed OWU conversations. Returns durable operation status; never blindly retry an unknown outcome.", Meta: meta(), Annotations: &mcp.ToolAnnotations{DestructiveHint: &destructive, IdempotentHint: true, OpenWorldHint: &open}}, func(ctx context.Context, _ *mcp.CallToolRequest, in applyInput) (*mcp.CallToolResult, operationOutput, error) {
 		calls.Lock()

@@ -112,6 +112,7 @@ func (s *Service) Preview(ctx context.Context, principalID string, snapshot doma
 		}
 		plan := makePersistedPlan(preview, now, s.planTTL)
 		if plan.Status == "needs_binding_confirmation" {
+			plan.Status = "ready"
 			plan.ReadOnly = false
 			plan.AllowedActions = []string{"apply_sync"}
 			plan.NextAction = "review the source range, then apply this exact plan with explicit confirmation"

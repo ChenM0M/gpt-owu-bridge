@@ -133,14 +133,15 @@ type previewOutput struct {
 }
 
 type sourceSummary struct {
-	Title            string                   `json:"title,omitempty"`
-	IdentityEvidence domain.EvidenceLevel     `json:"identity_evidence"`
-	MessageCount     int                      `json:"message_count"`
-	Roles            map[string]int           `json:"roles"`
-	CoverageStatus   string                   `json:"coverage_status"`
-	Unsupported      []domain.UnsupportedItem `json:"unsupported,omitempty"`
-	BusinessHash     string                   `json:"business_hash"`
-	SnapshotOutput   string                   `json:"snapshot_output"`
+	Title            string                     `json:"title,omitempty"`
+	IdentityEvidence domain.EvidenceLevel       `json:"identity_evidence"`
+	MessageCount     int                        `json:"message_count"`
+	Roles            map[string]int             `json:"roles"`
+	CoverageStatus   string                     `json:"coverage_status"`
+	Unsupported      []domain.UnsupportedItem   `json:"unsupported,omitempty"`
+	Diagnostics      []domain.ContentDiagnostic `json:"diagnostics,omitempty"`
+	BusinessHash     string                     `json:"business_hash"`
+	SnapshotOutput   string                     `json:"snapshot_output"`
 }
 
 func runPreview(args []string, stdout io.Writer) error {
@@ -208,7 +209,7 @@ func runPreview(args []string, stdout io.Writer) error {
 		Source: sourceSummary{
 			Title: snapshot.Title, IdentityEvidence: snapshot.Identity.Evidence,
 			MessageCount: len(snapshot.Messages), Roles: roles, CoverageStatus: snapshot.Coverage.Status,
-			Unsupported: snapshot.Coverage.Unsupported, BusinessHash: snapshot.BusinessHash,
+			Unsupported: snapshot.Coverage.Unsupported, Diagnostics: snapshot.Coverage.Diagnostics, BusinessHash: snapshot.BusinessHash,
 			SnapshotOutput: filepath.Clean(*snapshotOut),
 		},
 		Plan: plan,

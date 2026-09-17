@@ -14,8 +14,8 @@ import (
 
 const (
 	SourceChatGPTShare = "chatgpt_share"
-	ParserVersion      = "chatgpt-share-ref-v1"
-	PolicyVersion      = "preview-policy-v1"
+	ParserVersion      = "chatgpt-share-ref-v2"
+	PolicyVersion      = "preview-policy-v2"
 )
 
 type EvidenceLevel string
@@ -38,13 +38,26 @@ type UnsupportedItem struct {
 	Detail string `json:"detail"`
 }
 
+// ContentDiagnostic explains how one source node was handled. Ignored and
+// degraded nodes are non-blocking; only blocked diagnostics represent lost
+// user-visible semantics and therefore make coverage partial.
+type ContentDiagnostic struct {
+	SourceID    string `json:"source_id"`
+	NodeID      string `json:"node_id,omitempty"`
+	Role        string `json:"role,omitempty"`
+	ContentType string `json:"content_type,omitempty"`
+	Disposition string `json:"disposition"`
+	Detail      string `json:"detail"`
+}
+
 type Coverage struct {
-	Status                  string            `json:"status"`
-	SelectedMessages        int               `json:"selected_messages"`
-	ExcludedInternalNodes   int               `json:"excluded_internal_nodes"`
-	ExcludedNonMessageNodes int               `json:"excluded_non_message_nodes"`
-	Unsupported             []UnsupportedItem `json:"unsupported,omitempty"`
-	Limitations             []string          `json:"limitations,omitempty"`
+	Status                  string              `json:"status"`
+	SelectedMessages        int                 `json:"selected_messages"`
+	ExcludedInternalNodes   int                 `json:"excluded_internal_nodes"`
+	ExcludedNonMessageNodes int                 `json:"excluded_non_message_nodes"`
+	Unsupported             []UnsupportedItem   `json:"unsupported,omitempty"`
+	Diagnostics             []ContentDiagnostic `json:"diagnostics,omitempty"`
+	Limitations             []string            `json:"limitations,omitempty"`
 }
 
 type Message struct {
@@ -79,6 +92,14 @@ func (s SourceSnapshot) ComputeHash() (string, error) {
 	copy := s
 	copy.FetchedAt = time.Time{}
 	copy.BusinessHash = ""
+	// Diagnostics and exclusion counters describe the source container, not the
+	// user-visible transcript that will be synchronized. Keeping them out of the
+	// business hash prevents harmless tool/reasoning churn from looking like a
+	// semantic conversation change. Status and Unsupported remain hashed so a
+	// newly blocked visible message still changes the immutable plan input.
+	copy.Coverage.Diagnostics = nil
+	copy.Coverage.ExcludedInternalNodes = 0
+	copy.Coverage.ExcludedNonMessageNodes = 0
 	b, err := json.Marshal(copy)
 	if err != nil {
 		return "", fmt.Errorf("marshal source snapshot: %w", err)

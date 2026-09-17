@@ -12,10 +12,29 @@ import (
 	"time"
 
 	"github.com/ChenM0M/gpt-owu-bridge/internal/config"
+	"github.com/ChenM0M/gpt-owu-bridge/internal/domain"
 	"github.com/ChenM0M/gpt-owu-bridge/internal/owu"
 	"github.com/ChenM0M/gpt-owu-bridge/internal/storage"
 	"github.com/go-oauth2/oauth2/v4/models"
 )
+
+func TestPreviewOutputIncludesContentDiagnostics(t *testing.T) {
+	encoded, err := json.Marshal(previewOutput{
+		Plan: domain.SyncPlan{Status: "ready"}, Title: "Example", MessageCount: 2,
+		Diagnostics: []domain.ContentDiagnostic{{
+			SourceID: "source-1", Role: "tool", ContentType: "text",
+			Disposition: "ignored", Detail: "tool result",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"source_id":"source-1"`, `"role":"tool"`, `"content_type":"text"`, `"disposition":"ignored"`} {
+		if !strings.Contains(string(encoded), field) {
+			t.Fatalf("preview diagnostics omitted %s: %s", field, encoded)
+		}
+	}
+}
 
 func TestConnectorAuthenticatedDiscovery(t *testing.T) {
 	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

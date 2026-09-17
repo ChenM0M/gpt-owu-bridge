@@ -120,7 +120,7 @@ func TestInternalAssistantPayloadsAreExcludedWithoutHiddenFlag(t *testing.T) {
 				if len(snapshot.Messages) != 2 {
 					t.Fatal("non-text payload became transcript content")
 				}
-				excluded := role == "assistant" && kind != "unknown_new_type"
+				excluded := kind != "unknown_new_type"
 				if excluded != (snapshot.Coverage.Status == "supported_path_complete") {
 					t.Fatal("wrong coverage classification")
 				}
@@ -197,6 +197,103 @@ func TestUnsupportedVisibleContentIsReported(t *testing.T) {
 	}
 	if snapshot.Coverage.Status != "partial" || len(snapshot.Coverage.Unsupported) != 1 || len(snapshot.Messages) != 1 {
 		t.Fatalf("unsupported item was not reported: %#v", snapshot.Coverage)
+	}
+	blocked := false
+	for _, diagnostic := range snapshot.Coverage.Diagnostics {
+		blocked = blocked || diagnostic.Disposition == "blocked"
+	}
+	if !blocked {
+		t.Fatalf("blocked diagnostic was not reported: %#v", snapshot.Coverage.Diagnostics)
+	}
+}
+
+func TestAuxiliaryNodesAreIgnoredAndCitationsDegradeWithoutBlocking(t *testing.T) {
+	root := testNode("root", nil, nil)
+	system := testNode("sys", "root", testMessage("m-sys", "system", "internal"))
+	user := testNode("u", "sys", testMessage("m-u", "user", "question"))
+	tool := testNode("tool", "u", testMessage("m-tool", "tool", "search result"))
+	thoughtMessage := testMessage("m-thought", "assistant", "internal reasoning")
+	thoughtMessage["content"].(map[string]any)["content_type"] = "thoughts"
+	thought := testNode("thought", "tool", thoughtMessage)
+	browseMessage := testMessage("m-browse", "assistant", "search cards")
+	browseMessage["content"].(map[string]any)["content_type"] = "tether_browsing_display"
+	browse := testNode("browse", "thought", browseMessage)
+	quoteMessage := testMessage("m-quote", "assistant", "quoted source")
+	quoteMessage["content"].(map[string]any)["content_type"] = "tether_quote"
+	quote := testNode("quote", "browse", quoteMessage)
+	answerMessage := testMessage("m-a", "assistant", "answer citeturn1search0")
+	answerMessage["channel"] = "final"
+	answerMessage["metadata"] = map[string]any{
+		"content_references": []any{map[string]any{
+			"type": "grouped_webpages", "matched_text": "citeturn1search0",
+			"items": []any{map[string]any{
+				"title":       "Nested title must not replace the conversation title",
+				"attribution": "Example", "url": "https://example.com/source",
+			}},
+		}},
+	}
+	answer := testNode("a", "quote", answerMessage)
+	nodes := []map[string]any{root, system, user, tool, thought, browse, quote, answer}
+	for index := 0; index+1 < len(nodes); index++ {
+		nodes[index]["children"] = []any{nodes[index+1]["id"]}
+	}
+	mapping := make(map[string]any, len(nodes))
+	linear := make([]any, 0, len(nodes))
+	for _, node := range nodes {
+		mapping[node["id"].(string)] = node
+		linear = append(linear, node)
+	}
+	conversation := map[string]any{
+		"mapping": mapping, "linear_conversation": linear, "current_node": "a",
+		"title": "Expected conversation title",
+	}
+	snapshot, err := ParseHTML(encodeConversation(t, conversation), ParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Title != "Expected conversation title" {
+		t.Fatalf("nested citation title contaminated conversation title: %q", snapshot.Title)
+	}
+	if snapshot.Coverage.Status != "supported_path_complete" || len(snapshot.Coverage.Unsupported) != 0 {
+		t.Fatalf("auxiliary nodes blocked coverage: %#v", snapshot.Coverage)
+	}
+	if len(snapshot.Messages) != 2 || strings.Join(snapshot.Messages[1].Parts, "") != "answer [Example](https://example.com/source)" {
+		t.Fatalf("citation was not degraded into Markdown: %#v", snapshot.Messages)
+	}
+	ignored, degraded, blocked := 0, 0, 0
+	for _, diagnostic := range snapshot.Coverage.Diagnostics {
+		if diagnostic.SourceID == "" || diagnostic.ContentType == "" {
+			t.Fatalf("diagnostic lacks source identity or content type: %#v", diagnostic)
+		}
+		switch diagnostic.Disposition {
+		case "ignored":
+			ignored++
+		case "degraded":
+			degraded++
+		case "blocked":
+			blocked++
+		}
+	}
+	if ignored != 6 || degraded != 1 || blocked != 0 {
+		t.Fatalf("wrong diagnostic dispositions: ignored=%d degraded=%d blocked=%d diagnostics=%#v", ignored, degraded, blocked, snapshot.Coverage.Diagnostics)
+	}
+
+	cleanRoot := testNode("root", nil, nil)
+	cleanUser := testNode("u", "root", testMessage("m-u", "user", "question"))
+	cleanAnswer := testNode("a", "u", answerMessage)
+	cleanRoot["children"] = []any{"u"}
+	cleanUser["children"] = []any{"a"}
+	cleanConversation := map[string]any{
+		"mapping":             map[string]any{"root": cleanRoot, "u": cleanUser, "a": cleanAnswer},
+		"linear_conversation": []any{cleanRoot, cleanUser, cleanAnswer},
+		"current_node":        "a", "title": "Expected conversation title",
+	}
+	cleanSnapshot, err := ParseHTML(encodeConversation(t, cleanConversation), ParseOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleanSnapshot.BusinessHash != snapshot.BusinessHash {
+		t.Fatalf("ignored auxiliary nodes changed the semantic business hash: %s != %s", cleanSnapshot.BusinessHash, snapshot.BusinessHash)
 	}
 }
 

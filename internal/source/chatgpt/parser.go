@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +19,8 @@ import (
 )
 
 const streamMarker = `window.__reactRouterContext.streamController.enqueue(`
+
+var nativeCitationPattern = regexp.MustCompile(`cite[^]+`)
 
 type Limits struct {
 	MaxHTMLBytes    int
@@ -348,8 +352,9 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 		node := rawNode.(map[string]any)
 		children, _ := stringSlice(node["children"])
 		if len(children) > 1 {
-			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-				NodeID: id, Kind: "alternate_branch", Detail: "mapping contains more than one child",
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: id, NodeID: id, Role: "conversation", ContentType: "alternate_branch", Disposition: "ignored",
+				Detail: "non-current alternate branches are outside the selected conversation path",
 			})
 		}
 	}
@@ -357,11 +362,15 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 	messages := make([]domain.Message, 0, len(linearNodes))
 	messageIDs := make(map[string]struct{})
 	totalParts, totalText := 0, 0
-	for order, node := range linearNodes {
+	for _, node := range linearNodes {
 		nodeID := node["id"].(string)
 		rawMessage, present := node["message"]
 		if !present || rawMessage == nil {
 			coverage.ExcludedNonMessageNodes++
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: nodeID, NodeID: nodeID, Role: "none", ContentType: "non_message", Disposition: "ignored",
+				Detail: "conversation structure node has no message payload",
+			})
 			continue
 		}
 		messageObject, ok := rawMessage.(map[string]any)
@@ -370,21 +379,50 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 		}
 		author, _ := messageObject["author"].(map[string]any)
 		role, _ := author["role"].(string)
+		content, contentObject := messageObject["content"].(map[string]any)
+		contentType, _ := content["content_type"].(string)
+		diagnosticRole, diagnosticContentType := role, contentType
+		if diagnosticRole == "" {
+			diagnosticRole = "unknown"
+		}
+		if diagnosticContentType == "" {
+			diagnosticContentType = "unknown"
+		}
+		messageID, _ := messageObject["id"].(string)
+		sourceID := messageID
+		if sourceID == "" {
+			sourceID = nodeID
+		}
 		if role != "user" && role != "assistant" {
 			coverage.ExcludedInternalNodes++
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: sourceID, NodeID: nodeID, Role: diagnosticRole, ContentType: diagnosticContentType,
+				Disposition: "ignored", Detail: "non-user/assistant auxiliary node",
+			})
 			continue
 		}
-		if hidden(messageObject) || internalRecipient(messageObject) {
+		if hidden(messageObject) {
 			coverage.ExcludedInternalNodes++
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: sourceID, NodeID: nodeID, Role: diagnosticRole, ContentType: diagnosticContentType,
+				Disposition: "ignored", Detail: "message is marked visually hidden",
+			})
 			continue
 		}
-		content, ok := messageObject["content"].(map[string]any)
-		contentType, _ := content["content_type"].(string)
-		// Real share payloads include internal assistant context and reasoning
-		// recap nodes without the visually-hidden metadata flag. They are not
-		// transcript messages and must never be imported or echoed in previews.
-		if role == "assistant" && (contentType == "model_editable_context" || contentType == "reasoning_recap") {
+		if internalRecipient(messageObject) {
 			coverage.ExcludedInternalNodes++
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: sourceID, NodeID: nodeID, Role: diagnosticRole, ContentType: diagnosticContentType,
+				Disposition: "ignored", Detail: "message is addressed to an internal tool recipient",
+			})
+			continue
+		}
+		if auxiliaryContentType(contentType) {
+			coverage.ExcludedInternalNodes++
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: sourceID, NodeID: nodeID, Role: diagnosticRole, ContentType: diagnosticContentType,
+				Disposition: "ignored", Detail: "auxiliary context, reasoning, browsing, or quotation node",
+			})
 			continue
 		}
 		channel := ""
@@ -392,29 +430,21 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 			var ok bool
 			channel, ok = rawChannel.(string)
 			if !ok {
-				coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-					NodeID: nodeID, Kind: "channel", Detail: "visible role uses a non-string channel",
-				})
+				blockVisible(&coverage, sourceID, nodeID, role, contentType, "channel", "visible role uses a non-string channel")
 				continue
 			}
 		}
 		if channel != "" && channel != "final" && channel != "commentary" {
-			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-				NodeID: nodeID, Kind: "channel", Detail: "visible role uses an unsupported channel",
-			})
+			blockVisible(&coverage, sourceID, nodeID, role, contentType, "channel", "visible role uses an unsupported channel")
 			continue
 		}
-		if !ok || contentType != "text" {
-			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-				NodeID: nodeID, Kind: "content_type", Detail: "visible message is not supported text content",
-			})
+		if !contentObject || contentType != "text" {
+			blockVisible(&coverage, sourceID, nodeID, role, contentType, "content_type", "user-visible message is not supported text content")
 			continue
 		}
 		rawParts, ok := content["parts"].([]any)
 		if !ok {
-			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-				NodeID: nodeID, Kind: "parts", Detail: "text parts are missing or not an array",
-			})
+			blockVisible(&coverage, sourceID, nodeID, role, contentType, "parts", "user-visible text parts are missing or not an array")
 			continue
 		}
 		parts := make([]string, 0, len(rawParts))
@@ -426,19 +456,30 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 				break
 			}
 			parts = append(parts, part)
-			totalText += len(part)
 		}
 		totalParts += len(rawParts)
-		if totalParts > limits.MaxParts || totalText > limits.MaxTextBytes {
+		if totalParts > limits.MaxParts {
 			return domain.SourceSnapshot{}, formatError("message content exceeds resource limits")
 		}
 		if !partSupported {
-			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
-				NodeID: nodeID, Kind: "parts", Detail: "text message contains a non-string part",
-			})
+			blockVisible(&coverage, sourceID, nodeID, role, contentType, "parts", "user-visible text message contains a non-string part")
 			continue
 		}
-		messageID, _ := messageObject["id"].(string)
+		metadata, _ := messageObject["metadata"].(map[string]any)
+		var degraded bool
+		parts, degraded = degradeCitations(parts, metadata)
+		for _, part := range parts {
+			totalText += len(part)
+		}
+		if totalParts > limits.MaxParts || totalText > limits.MaxTextBytes {
+			return domain.SourceSnapshot{}, formatError("message content exceeds resource limits")
+		}
+		if degraded {
+			coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+				SourceID: sourceID, NodeID: nodeID, Role: role, ContentType: "citation",
+				Disposition: "degraded", Detail: "native citation markers were converted to Markdown links or source labels",
+			})
+		}
 		if messageID == "" {
 			return domain.SourceSnapshot{}, formatError("visible message has no independent id")
 		}
@@ -446,11 +487,14 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 			return domain.SourceSnapshot{}, formatError("duplicate visible message id")
 		}
 		messageIDs[messageID] = struct{}{}
-		parent, _ := node["parent"].(string)
-		children, _ := stringSlice(node["children"])
+		parent := ""
+		if len(messages) > 0 {
+			parent = messages[len(messages)-1].NodeID
+			messages[len(messages)-1].ChildNodeIDs = []string{nodeID}
+		}
 		messages = append(messages, domain.Message{
 			ID: messageID, NodeID: nodeID, Role: role, Channel: channel, Parts: parts,
-			ParentNodeID: parent, ChildNodeIDs: children, Order: order,
+			ParentNodeID: parent, Order: len(messages),
 			SourceCreatedAt: parseTime(messageObject["create_time"]),
 		})
 	}
@@ -460,6 +504,15 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 			return strings.Compare(left.NodeID, right.NodeID)
 		}
 		return strings.Compare(left.Kind, right.Kind)
+	})
+	slices.SortFunc(coverage.Diagnostics, func(left, right domain.ContentDiagnostic) int {
+		if left.NodeID != right.NodeID {
+			return strings.Compare(left.NodeID, right.NodeID)
+		}
+		if left.Disposition != right.Disposition {
+			return strings.Compare(left.Disposition, right.Disposition)
+		}
+		return strings.Compare(left.ContentType, right.ContentType)
 	})
 	if len(coverage.Unsupported) > 0 {
 		coverage.Status = "partial"
@@ -489,7 +542,7 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 	}
 	return domain.SourceSnapshot{
 		SourceType: domain.SourceChatGPTShare, Identity: identity, ShareID: shareID,
-		Title: title, Messages: messages, CurrentNodeID: current,
+		Title: title, Messages: messages, CurrentNodeID: messages[len(messages)-1].NodeID,
 		SourceCreatedAt: parseTime(conversation["create_time"]), FetchedAt: fetchedAt,
 		ParserVersion: domain.ParserVersion, Coverage: coverage,
 	}, nil
@@ -608,6 +661,112 @@ func optionalString(object map[string]any, key string) (string, error) {
 		return "", formatError(key + " is not a string")
 	}
 	return text, nil
+}
+
+func auxiliaryContentType(contentType string) bool {
+	switch contentType {
+	case "model_editable_context", "reasoning_recap", "thoughts", "reasoning", "analysis",
+		"tether_browsing_display", "tether_quote":
+		return true
+	default:
+		return false
+	}
+}
+
+func blockVisible(coverage *domain.Coverage, sourceID, nodeID, role, contentType, kind, detail string) {
+	if role == "" {
+		role = "unknown"
+	}
+	if contentType == "" {
+		contentType = "unknown"
+	}
+	coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
+		NodeID: nodeID, Kind: kind, Detail: detail,
+	})
+	coverage.Diagnostics = append(coverage.Diagnostics, domain.ContentDiagnostic{
+		SourceID: sourceID, NodeID: nodeID, Role: role, ContentType: contentType,
+		Disposition: "blocked", Detail: detail,
+	})
+}
+
+func degradeCitations(parts []string, metadata map[string]any) ([]string, bool) {
+	result := append([]string(nil), parts...)
+	degraded := false
+	for _, key := range []string{"content_references", "citations"} {
+		references, _ := metadata[key].([]any)
+		for _, rawReference := range references {
+			reference, _ := rawReference.(map[string]any)
+			matched, _ := reference["matched_text"].(string)
+			if !nativeCitationPattern.MatchString(matched) {
+				continue
+			}
+			replacement := citationReplacement(reference)
+			for index, part := range result {
+				updated := strings.ReplaceAll(part, matched, replacement)
+				if updated != part {
+					result[index] = updated
+					degraded = true
+				}
+			}
+		}
+	}
+	for index, part := range result {
+		updated := nativeCitationPattern.ReplaceAllString(part, "[source]")
+		if updated != part {
+			result[index] = updated
+			degraded = true
+		}
+	}
+	return result, degraded
+}
+
+func citationReplacement(reference map[string]any) string {
+	for _, key := range []string{"items", "sources", "fallback_items"} {
+		items, _ := reference[key].([]any)
+		for _, rawItem := range items {
+			item, _ := rawItem.(map[string]any)
+			if replacement := markdownSource(item); replacement != "" {
+				return replacement
+			}
+		}
+	}
+	safeURLs, _ := reference["safe_urls"].([]any)
+	for _, rawURL := range safeURLs {
+		text, _ := rawURL.(string)
+		if safe := safeWebURL(text); safe != "" {
+			return "[source](" + safe + ")"
+		}
+	}
+	return "[source]"
+}
+
+func markdownSource(item map[string]any) string {
+	rawURL, _ := item["url"].(string)
+	safe := safeWebURL(rawURL)
+	if safe == "" {
+		return ""
+	}
+	label, _ := item["attribution"].(string)
+	if label == "" {
+		label, _ = item["title"].(string)
+	}
+	if label == "" {
+		parsed, _ := url.Parse(rawURL)
+		label = parsed.Hostname()
+	}
+	if label == "" {
+		label = "source"
+	}
+	label = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`).Replace(label)
+	return "[" + label + "](" + safe + ")"
+}
+
+func safeWebURL(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" {
+		return ""
+	}
+	return strings.NewReplacer("(", "%28", ")", "%29", " ", "%20").Replace(parsed.String())
 }
 
 func hidden(message map[string]any) bool {

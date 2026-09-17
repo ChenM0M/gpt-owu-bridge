@@ -23,6 +23,22 @@ func TestFirstPreviewNeedsConfirmationAndCannotApply(t *testing.T) {
 	}
 }
 
+func TestNonBlockingDiagnosticsDoNotBecomeUnsupportedContent(t *testing.T) {
+	current := source("Title", message("u1", "user", "question"), message("a1", "assistant", "answer"))
+	current.Coverage.Diagnostics = []domain.ContentDiagnostic{
+		{SourceID: "tool-1", Role: "tool", ContentType: "text", Disposition: "ignored", Detail: "tool result"},
+		{SourceID: "a1", Role: "assistant", ContentType: "citation", Disposition: "degraded", Detail: "Markdown link"},
+	}
+	current.BusinessHash, _ = current.ComputeHash()
+	plan, err := Preview(nil, current, nil, nil, Options{Now: fixedNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status == "unsupported_content" {
+		t.Fatalf("ignored/degraded diagnostics blocked the plan: %#v", plan)
+	}
+}
+
 func TestAppendNoChangeAndModification(t *testing.T) {
 	previous := source("Title", message("u1", "user", "question"), message("a1", "assistant", "answer"))
 	tests := []struct {

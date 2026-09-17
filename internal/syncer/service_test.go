@@ -80,6 +80,24 @@ func TestCreateUpdateReplayAndNoChangeReread(t *testing.T) {
 	}
 }
 
+func TestCreatePreviewWithIgnoredAndDegradedDiagnosticsIsReady(t *testing.T) {
+	h := newHarness(t, Options{})
+	defer h.close()
+	source := testSource("Search-backed answer", "question", "answer [Source](https://example.com)")
+	source.Coverage.Diagnostics = []domain.ContentDiagnostic{
+		{SourceID: "tool-1", Role: "tool", ContentType: "text", Disposition: "ignored", Detail: "tool result"},
+		{SourceID: source.Messages[1].ID, Role: "assistant", ContentType: "citation", Disposition: "degraded", Detail: "Markdown link"},
+	}
+	source.BusinessHash, _ = source.ComputeHash()
+	plan, err := h.service.Preview(context.Background(), h.installation.OwnerID, source, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Status != "ready" || plan.ReadOnly || len(plan.AllowedActions) != 1 || plan.AllowedActions[0] != "apply_sync" {
+		t.Fatalf("non-blocking diagnostics did not produce an applicable ready plan: %#v", plan)
+	}
+}
+
 func TestCreateUnknownWithoutReceiptNeverRetriesAcrossRestart(t *testing.T) {
 	h := newHarness(t, Options{})
 	defer h.close()

@@ -98,6 +98,12 @@ an owner or target chat ID supplied by the model. Automatic matching of changed
 source identities remains disabled pending lifecycle validation. Unknown write
 outcomes require reconciliation; the service never blindly retries them.
 
+`preview_sync` also returns per-node `diagnostics` with `source_id`, `role`,
+`content_type`, `disposition` (`ignored`, `degraded`, or `blocked`) and a short
+detail. Ignored internal/tool/reasoning nodes and degraded Markdown citations do
+not block a plan. Only blocked user-visible content produces
+`unsupported_content`.
+
 OAuth clients and tokens persist in `oauth.sqlite`. Preserve it together with
 `gate.db` during backup/restore. Stop the service before copying both databases.
 
