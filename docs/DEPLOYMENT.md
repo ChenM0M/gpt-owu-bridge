@@ -100,3 +100,17 @@ outcomes require reconciliation; the service never blindly retries them.
 
 OAuth clients and tokens persist in `oauth.sqlite`. Preserve it together with
 `gate.db` during backup/restore. Stop the service before copying both databases.
+
+### Reverse proxy compatibility
+
+When the MCP listener is loopback-only, forward `Host: 127.0.0.1:18089`
+(or the actual loopback listener) and preserve the public hostname in
+`X-Forwarded-Host`. The Go MCP SDK rejects a public Host arriving on a loopback
+listener as DNS rebinding; keep that protection enabled. OAuth URLs are derived
+from `GATE_PUBLIC_URL`, not untrusted forwarded headers.
+
+OAuth consent pages use `Referrer-Policy: same-origin`: `no-referrer` makes
+browser navigation form POSTs use an opaque Origin, failing the CSRF origin
+check. Their CSP permits form navigation to the exact ChatGPT origin so the
+registered OAuth callback redirect can finish. The server still validates the
+full registered redirect URL exactly. Preserve these headers through the proxy.

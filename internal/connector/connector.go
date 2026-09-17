@@ -132,7 +132,7 @@ func New(ctx context.Context, cfg config.Config) (http.Handler, func() error, er
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Referrer-Policy", "same-origin")
 		if origin := r.Header.Get("Origin"); origin != "" && origin != auth.origin && origin != "https://chatgpt.com" {
 			http.Error(w, "Origin rejected", 403)
 			return

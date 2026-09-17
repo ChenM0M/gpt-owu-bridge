@@ -1,4 +1,4 @@
-// Package httpserver exposes only local operational health endpoints in M0.
+// Package httpserver serves local health endpoints and the configured OAuth connector.
 // No unauthenticated sync, target-read, or target-write routes are registered.
 package httpserver
 
@@ -75,10 +75,10 @@ func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
-	logger.Info("local health service started",
+	logger.Info("bridge HTTP service started",
 		"listen", listener.Addr().String(),
-		"production_sync", false,
-		"mcp", false,
+		"production_sync", cfg.PublicURL != "",
+		"mcp", cfg.PublicURL != "",
 	)
 	serveResult := make(chan error, 1)
 	go func() {

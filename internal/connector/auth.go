@@ -185,8 +185,8 @@ func (a *authorization) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'")
+	w.Header().Set("Referrer-Policy", "same-origin")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; form-action 'self' https://chatgpt.com; frame-ancestors 'none'")
 	if r.Method == "GET" {
 		csrf := randomID()
 		http.SetCookie(w, &http.Cookie{Name: "bridge_csrf", Value: csrf, Path: a.path + "/authorize", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: 600})
