@@ -10,6 +10,7 @@ import (
 const syncUsage = `usage:
   gpt-owu-gate sync init -- [config flags]
   gpt-owu-gate sync preview --html FILE [--binding ID] -- [config flags]
+  gpt-owu-gate sync preview --url HTTPS_SHARE_URL [--binding ID] -- [config flags]
   gpt-owu-gate sync apply --plan ID --confirm -- [config flags]
   gpt-owu-gate sync status --operation ID -- [config flags]
   gpt-owu-gate sync pending -- [config flags]

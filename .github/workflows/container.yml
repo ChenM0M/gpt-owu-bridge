@@ -47,9 +47,14 @@ jobs:
           docker compose up -d --wait --wait-timeout 60
           curl --fail http://127.0.0.1:18089/health/ready | python3 -c 'import sys,json; d=json.load(sys.stdin); assert d["capabilities"]["mcp"] is False'
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18089/sync)" = 404
-          docker compose restart
+          docker compose cp testdata/synthetic-share.html bridge:/data/fixture.html
+          docker compose exec -T bridge /gpt-owu-gate preview --html /data/fixture.html --snapshot-out /data/persistence-check.json
+          docker compose cp bridge:/data/persistence-check.json /tmp/before.json
+          docker compose down
           docker compose up -d --wait --wait-timeout 60
           docker compose exec -T bridge /gpt-owu-gate healthcheck
+          docker compose cp bridge:/data/persistence-check.json /tmp/after.json
+          cmp /tmp/before.json /tmp/after.json
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:

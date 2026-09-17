@@ -76,6 +76,7 @@ func usageError() error {
 func usageText() string {
 	return strings.TrimSpace(`usage:
   gpt-owu-gate serve [config flags]
+  gpt-owu-gate healthcheck [config flags]
   gpt-owu-gate config check [config flags]
   gpt-owu-gate preview --html FILE --snapshot-out FILE [preview flags]
   gpt-owu-gate sync init|preview|apply|status|pending|recover [action flags] -- [config flags]

@@ -48,3 +48,18 @@ data volume. Stop all users of the data directory before taking an offline backu
 
 Personal research notes, raw samples, proxy profiles and deployment credentials
 are not part of the public source distribution.
+
+## Share URL input
+
+`sync preview --url https://chatgpt.com/share/UUID -- [config flags]` fetches
+anonymous HTML before running the same deterministic parser and preview.
+Only canonical HTTPS share URLs are accepted. Redirects, cookies, non-HTML,
+empty responses and responses over 8 MiB are rejected. `HTTPS_PROXY` may route
+source requests through an administrator-managed proxy. Do not put proxy
+credentials in command arguments, logs or public configuration. The OWU client
+uses its own transport; source proxy configuration does not change its target.
+
+The current OWU adapter requires a non-empty server `DEPLOYMENT_ID`. Stock
+self-hosted OWU may return an empty value; this must be resolved before sync
+initialization. Do not substitute a guessed deployment identity or silently
+disable the identity check.
