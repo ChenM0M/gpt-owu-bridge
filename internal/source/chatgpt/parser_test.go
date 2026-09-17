@@ -101,6 +101,41 @@ func TestParserAcceptsEquivalentIndependentLinearNodes(t *testing.T) {
 	}
 }
 
+func TestInternalAssistantPayloadsAreExcludedWithoutHiddenFlag(t *testing.T) {
+	for _, kind := range []string{"model_editable_context", "reasoning_recap", "unknown_new_type"} {
+		for _, role := range []string{"assistant", "user"} {
+			t.Run(role+"/"+kind, func(t *testing.T) {
+				user := testNode("u", nil, testMessage("m-u", "user", "synthetic question"))
+				internalMessage := testMessage("m-i", role, "SYNTHETIC-INTERNAL-CANARY")
+				internalMessage["content"].(map[string]any)["content_type"] = kind
+				internal := testNode("i", "u", internalMessage)
+				answer := testNode("a", "i", testMessage("m-a", "assistant", "synthetic answer"))
+				user["children"] = []any{"i"}
+				internal["children"] = []any{"a"}
+				conversation := map[string]any{"mapping": map[string]any{"u": user, "i": internal, "a": answer}, "linear_conversation": []any{user, internal, answer}, "current_node": "a"}
+				snapshot, err := ParseHTML(encodeConversation(t, conversation), ParseOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(snapshot.Messages) != 2 {
+					t.Fatal("non-text payload became transcript content")
+				}
+				excluded := role == "assistant" && kind != "unknown_new_type"
+				if excluded != (snapshot.Coverage.Status == "supported_path_complete") {
+					t.Fatal("wrong coverage classification")
+				}
+				if excluded && snapshot.Coverage.ExcludedInternalNodes != 1 {
+					t.Fatal("missing internal exclusion count")
+				}
+				serialized, _ := json.Marshal(snapshot)
+				if strings.Contains(string(serialized), "SYNTHETIC-INTERNAL-CANARY") {
+					t.Fatal("internal payload leaked into snapshot")
+				}
+			})
+		}
+	}
+}
+
 func TestParserRejectsLinearMappingContradictions(t *testing.T) {
 	tests := []struct {
 		name       string

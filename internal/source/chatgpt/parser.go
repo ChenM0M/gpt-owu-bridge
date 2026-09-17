@@ -378,6 +378,15 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 			coverage.ExcludedInternalNodes++
 			continue
 		}
+		content, ok := messageObject["content"].(map[string]any)
+		contentType, _ := content["content_type"].(string)
+		// Real share payloads include internal assistant context and reasoning
+		// recap nodes without the visually-hidden metadata flag. They are not
+		// transcript messages and must never be imported or echoed in previews.
+		if role == "assistant" && (contentType == "model_editable_context" || contentType == "reasoning_recap") {
+			coverage.ExcludedInternalNodes++
+			continue
+		}
 		channel := ""
 		if rawChannel, present := messageObject["channel"]; present && rawChannel != nil {
 			var ok bool
@@ -395,8 +404,6 @@ func buildSnapshot(conversation map[string]any, fetchedAt time.Time, limits Limi
 			})
 			continue
 		}
-		content, ok := messageObject["content"].(map[string]any)
-		contentType, _ := content["content_type"].(string)
 		if !ok || contentType != "text" {
 			coverage.Unsupported = append(coverage.Unsupported, domain.UnsupportedItem{
 				NodeID: nodeID, Kind: "content_type", Detail: "visible message is not supported text content",
