@@ -1,0 +1,10 @@
+# Unknown keys are rejected. Environment variables and explicit CLI flags
+# override these non-sensitive values.
+listen: 127.0.0.1:8080
+log_level: info
+data_dir: ./data
+public_url: ""
+owu_base_url: ""
+
+# YAML may reference a secret file but cannot contain a literal token.
+owu_token_file: ""

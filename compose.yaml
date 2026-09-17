@@ -1,0 +1,32 @@
+name: gpt-owu-bridge
+services:
+  bridge:
+    image: ${BRIDGE_IMAGE:?Set BRIDGE_IMAGE to a published image digest}
+    # Linux host networking preserves the application's loopback-only boundary.
+    network_mode: host
+    environment:
+      GATE_LISTEN: 127.0.0.1:18089
+      GATE_DATA_DIR: /data
+    volumes:
+      - bridge-data:/data
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 192m
+    cpus: 0.50
+    pids_limit: 64
+    stop_grace_period: 15s
+    healthcheck:
+      test: [CMD, /gpt-owu-gate, healthcheck]
+      interval: 20s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: '2'
+volumes:
+  bridge-data:
