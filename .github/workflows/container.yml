@@ -61,6 +61,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish pinned private-tunnel runtime
+        if: github.event_name != 'pull_request'
+        run: |
+          docker pull snowdreamtech/frpc@sha256:bfdbbc90721307e3c40771f66eae3146eddcdb187b987528f0dd3a4f9a361e30
+          docker tag snowdreamtech/frpc@sha256:bfdbbc90721307e3c40771f66eae3146eddcdb187b987528f0dd3a4f9a361e30 ghcr.io/chenm0m/gpt-owu-bridge:frpc-bfdbbc907213
+          docker push ghcr.io/chenm0m/gpt-owu-bridge:frpc-bfdbbc907213
       - uses: docker/build-push-action@v6
         if: github.event_name != 'pull_request'
         with:

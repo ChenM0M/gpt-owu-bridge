@@ -7,7 +7,7 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/gpt-owu-gate ./cmd/gpt-owu-gate \
-    && mkdir -p /out/data && chown 65532:65532 /out/data
+    && mkdir -p /out/data && chown 65532:65532 /out/data && chmod 700 /out/data
 
 FROM scratch
 LABEL org.opencontainers.image.source="https://github.com/ChenM0M/gpt-owu-bridge"

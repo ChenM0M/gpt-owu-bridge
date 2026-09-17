@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ChenM0M/gpt-owu-bridge/internal/config"
+	"github.com/ChenM0M/gpt-owu-bridge/internal/connector"
 )
 
 type healthResponse struct {
@@ -53,15 +54,24 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func Run(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	handler := Handler()
+	if cfg.PublicURL != "" {
+		connected, closeConnector, err := connector.New(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		defer closeConnector()
+		handler = connected
+	}
 	listener, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {
 		return err
 	}
 	server := &http.Server{
-		Handler:           Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		WriteTimeout:      90 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
