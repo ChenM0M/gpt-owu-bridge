@@ -25,6 +25,7 @@ Changed-source automatic matching remains disabled pending lifecycle evidence.`
 type syncFlags struct {
 	action     string
 	html       string
+	shareURL   string
 	binding    string
 	plan       string
 	operation  string
@@ -59,6 +60,7 @@ func parseSyncFlags(args []string) (syncFlags, error) {
 	case "init", "pending":
 	case "preview":
 		fs.StringVar(&out.html, "html", "", "local share HTML")
+		fs.StringVar(&out.shareURL, "url", "", "canonical public ChatGPT share URL")
 		fs.StringVar(&out.binding, "binding", "", "service binding identifier")
 	case "apply":
 		fs.StringVar(&out.plan, "plan", "", "persisted plan identifier")
@@ -73,8 +75,8 @@ func parseSyncFlags(args []string) (syncFlags, error) {
 	if fs.Parse(actionArgs) != nil || fs.NArg() != 0 {
 		return out, errors.New("invalid sync flags; run sync help")
 	}
-	if out.action == "preview" && strings.TrimSpace(out.html) == "" {
-		return out, errors.New("sync preview requires --html")
+	if out.action == "preview" && ((strings.TrimSpace(out.html) == "") == (strings.TrimSpace(out.shareURL) == "")) {
+		return out, errors.New("sync preview requires exactly one of --html or --url")
 	}
 	if out.action == "apply" && (strings.TrimSpace(out.plan) == "" || !out.confirm) {
 		return out, errors.New("sync apply requires --plan and --confirm for the reviewed plan")

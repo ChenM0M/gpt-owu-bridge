@@ -85,9 +85,17 @@ func runSync(args, environ []string, stdout io.Writer) error {
 	service := syncer.New(store, target, installation, syncer.Options{})
 	switch flags.action {
 	case "preview":
-		html, err := readFileLimited(flags.html, int64(chatgpt.DefaultLimits().MaxHTMLBytes))
+		var html []byte
+		if flags.shareURL != "" {
+			html, err = chatgpt.FetchHTML(ctx, flags.shareURL)
+		} else {
+			html, err = readFileLimited(flags.html, int64(chatgpt.DefaultLimits().MaxHTMLBytes))
+			if err != nil {
+				return errors.New("sync HTML cannot be read within the size limit")
+			}
+		}
 		if err != nil {
-			return errors.New("sync HTML cannot be read within the size limit")
+			return err
 		}
 		snapshot, err := chatgpt.ParseHTML(html, chatgpt.ParseOptions{FetchedAt: time.Now().UTC()})
 		if err != nil {
